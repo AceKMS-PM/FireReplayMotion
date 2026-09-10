@@ -1,12 +1,12 @@
-# Edit AI — self-hosted AI video editor (public name: **FireReplayMotion**)
+#  **FireReplayMotion**
 
-> A free, local replacement for Chatcut / Veed-style editors, built for a weak PC (8 GB RAM, Intel HD 520), driven by the transcripts that already exist in the streaming app's database.
+
 
 ---
 
 ## 1. The vision — problem statement
 
-> **« Un agent IA conversationnel de post-production, qui transforme une instruction en langage naturel en un plan de montage exécutable, en s'appuyant uniquement sur la transcription temporalisée des vidéos comme base de connaissance — sans jamais analyser directement le flux vidéo tant que le plan n'est pas validé par l'utilisateur. »**
+> **« Un agent IA conversationnel de post-production, qui transforme une instruction en langage naturel en un plan de montage exécutable, en s'appuyant uniquement sur la transcription temporalisée des vidéos comme base de connaissance. »**
 >
 > *(formulated by the author — this is the project's constitution)*
 
@@ -35,18 +35,18 @@ In plain English: an agent you talk to. It **reasons over text** (the transcript
 - **Scope.** One video per chat session in V1. No autopilot over the catalog. Multi-video sessions, then supervised autonomy, come later.
 - **VLM (watching frames) is an optional future tool.** The architecture reserves the slot: "look at frames" is just another tool the agent may or may not have. On 8 GB it would be the first thing to hit the memory wall — the "time for better hardware" trigger.
 
-## 2. The constraints (why the design looks like this)
+## 2. The constraints of development (why the design looks like this)
 
 | Constraint | Consequence |
 |---|---|
 | 8 GB RAM, old CPU/iGPU | No heavy AI model + rendering at the same time. Everything runs **sequentially**. |
-| €0 budget | Only free, open-source tools: Python, FFmpeg, llama.cpp. No SaaS, no paid APIs. |
+| €0 budget | Only free, open-source tools: Python, FFmpeg, llama.cpp.  |
 | Streaming app must stay fast | Editing runs in the background as a worker; the app only ever reads output files. |
-| NAS not available yet | Prototype locally with test files; design so folders can later become NAS shares + webhooks. |
+| Prototype locally with test files; design so folders can later become NAS shares + webhooks. |
 
-## 3. The key insight (the "hack")
+## 3. The key insight
 
-**The transcripts already exist in the app's database, with timestamps.**
+**The transcripts already exist in the app's database,.**
 
 So there is no need for heavy AI to *listen* to the videos. If one sentence ends at 2:31 and the next starts at 2:38, there is a 7-second silence → cut it. The transcript is the "directing script" that tells the system where to cut. The only "AI" needed for the core pipeline is arithmetic.
 
@@ -59,23 +59,12 @@ The agent is blind on one axis (space: *where* something is on screen) — and t
 | 1 | **Transcript** *(have it)* | free | the *speech* dimension: timing, structure, content |
 | 2 | **Audio analysis** — `silencedetect`, loudness stats | ~free, no model | noise, music, clicks — what the transcript misses |
 | 3 | **Signal-level video analysis** — scene change, black frame, freeze detection, brightness stats | ~free, no AI, no RAM | *when* visuals change — not *what* they show |
-| 4 | **VLM "glances"** — grab 2–3 frames at decision points, ask a small vision model | ~2 GB, on demand | *what* and *where* — the reserved future tool |
 
-Accuracy by edit type without full vision:
-
-| Edit | Accuracy | Why |
-|---|---|---|
-| Silence/pacing cuts | ~95%+ | speech timing lives in the transcript |
-| Filler removal | High* | word timestamps *(if the DB has them)* |
-| Chapters, titles | High | pure text reasoning |
-| Brightness/polish | High | ffmpeg **measures** it (`signalstats`) — no AI needed |
-| Zoom "on the code" | Timing: yes — **Position: no** | the agent knows *when*, not *where* on screen |
-| Visual glitches, wrong slide shown | **Blind in V1** | genuinely invisible |
 
 **Why the *system* stays accurate even with a blind model:**
 
 ```
-deterministic rules (math, never wrong)
+deterministic rules 
 + measurements (audio/scene/brightness — objective numbers)
 + cross-validation (transcript gap says "silence", silencedetect confirms it)
 + human review of the plan (your eyes ARE the VLM in V1)
@@ -108,7 +97,7 @@ Blind-spot example: the agent proposes "zoom at 5:12", the plan preview shows th
 ## 6. What is already built (and verified)
 
 - **FFmpeg is installed and battle-tested** (v9, full build)
-- **Quick Sync works**: hardware encoding on the HD 520 is verified (`h264_qsv`, iHD driver) → renders several times faster, CPU stays free
+- **Quick Sync works**: hardware encoding on the HD 520 is verified (`h264_qsv`, iHD driver) → renders several times faster, CPU stays free ( specific to my hardware )
 - **Phase 0 — lab demos** (`lab/`): cut, zoom, drawtext, fade, color — all proven on `test_clip.mp4` (24 s clip with burned-in timestamp and planted silences at 0:06–0:09, 0:13–0:16, 0:20–0:23)
 - **Phase 1 — the pipeline** (tested end-to-end, output exactly as planned):
 
