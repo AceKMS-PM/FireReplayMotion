@@ -1,4 +1,4 @@
-# Edit AI — self-hosted AI video editor
+# Edit AI — self-hosted AI video editor (public name: **FireReplayMotion**)
 
 > A free, local replacement for Chatcut / Veed-style editors, built for a weak PC (8 GB RAM, Intel HD 520), driven by the transcripts that already exist in the streaming app's database.
 
@@ -250,4 +250,64 @@ change — it is the "did I break anything?" oracle.
 - A 3B local model is not ChatGPT: slower, best at structured tasks — fine here because it only chooses tools, never edits pixels.
 - Creative/motion-graphic editing (true "effects") is future work: each feature lands as a new op type + executor rule, as far as FFmpeg can go — which is far.
 - Complex AI visual effects (background removal, tracking) = a future VLM *tool* — the architecture reserves the slot (see Principles), and on 8 GB it would be the first thing to hit the memory wall: the "better hardware" trigger. No rewrite needed to add it.
-# FireReplayMotion
+
+## 11. Install from zero (for a fresh clone)
+
+The repo ships code only — no binaries, no weights. You need three things: FFmpeg, a llama.cpp build (the "brain server"), and one GGUF model.
+
+### 11.1 Prerequisites
+
+- Python 3.10+ (stdlib only, no pip packages)
+- FFmpeg + ffprobe (v6+): `sudo apt install ffmpeg` / `sudo pacman -S ffmpeg`
+- CMake + a C++ compiler (only to build llama.cpp): `sudo apt install cmake build-essential`
+- ~4 GB free RAM for the agent, more if you pick a bigger model (see 11.4)
+
+### 11.2 Build the brain server (llama.cpp)
+
+Any recent llama.cpp works — the project talks to it over its OpenAI-compatible HTTP API, nothing fork-specific:
+
+```
+git clone https://github.com/ggml-org/llama.cpp
+cd llama.cpp
+cmake -B build -DGGML_NATIVE=ON
+cmake --build build --config Release -j4
+mkdir -p tools/llama.cpp-master/build/bin
+cp build/bin/llama-server tools/llama.cpp-master/build/bin/
+```
+
+(On Intel iGPUs, Quick Sync only affects the *render* — FFmpeg, not llama.cpp. The brain runs on CPU.)
+
+### 11.3 Download a model
+
+Any instruct GGUF works. The default is Spark-X2.5-4B (Q4_K_M, ~2.6 GB):
+
+```
+mkdir -p models
+wget -O models/Spark-X2.5-4B-Q4_K_M.gguf \
+  "https://huggingface.co/abenzerps/Spark-X2.5-4B-GGUF/resolve/main/Spark-X2.5-4B-Q4_K_M.gguf"
+```
+
+(Alternative mirror: `ngquocvinh/Spark-X2.5-4B-GGUF` on Hugging Face — same file name, Q4_K_M ≈ 2.6 GB. If it 404s, search "Spark-X2.5-4B GGUF" on huggingface.co, or set `EDITAI_MODEL` to any GGUF you have.)
+
+### 11.4 Pick a brain (any GGUF instruct model works)
+
+The brain is a config line, not an architecture. `agent.py` reads `EDITAI_MODEL`; the model only chooses tools and fills JSON — it never edits pixels. More powerful hardware → bigger brain, same architecture:
+
+| Hardware | Suggested model | How |
+|---|---|---|
+| 8 GB RAM (reference machine) | Spark-X2.5-4B / Qwen3-4B Q4_K_M (~2.5 GB RAM) | default |
+| 16 GB RAM | Qwen2.5-7B / Llama-3.1-8B Q4_K_M | `EDITAI_MODEL=models/qwen2.5-7b-instruct-q4_k_m.gguf python3 agent.py` |
+| 32 GB+ / GPU offload | 14B–32B class Q4 | add `-ngl 99` to the llama-server flags in `agent.py` |
+
+Rules of thumb: instruct-tuned, tool-calling-capable (function calling), Q4_K_M quant is the sweet spot. Smaller than 3B tends to fail at multi-step tool chaining; 4B is the verified floor on CPU.
+
+### 11.5 First run
+
+```
+python3 smoke_test.py    # pipeline self-check (no brain needed)
+python3 agent.py         # starts the brain on first chat (port 8321)
+# or the web face:
+python3 webui.py         # → http://localhost:8080
+```
+
+Environment variables: `EDITAI_MODEL` (path to GGUF), `EDITAI_PORT` (default 8321).
