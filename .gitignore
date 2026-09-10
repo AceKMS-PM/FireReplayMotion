@@ -1,0 +1,21 @@
+# — heavy artifacts, never commit —
+# model weights (~6.8 GB)
+models/
+# llama.cpp build (~347 MB)
+tools/
+
+# — media: sources, outputs, demos (regenerable / personal) —
+inbox/*.mp4
+outbox/
+lab/*.mp4
+tmp_render/
+
+# — runtime state —
+__pycache__/
+*.pyc
+/tmp/
+*.log
+
+# — editor noise —
+*.swp
+*~

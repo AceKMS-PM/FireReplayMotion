@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Edit AI</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎬</text></svg>">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <h1>🎬 Edit AI</h1>
+  <span id="brain-badge" class="badge off">brain: ?</span>
+  <button id="btn-stop-brain" title="Free the RAM">⏹ Stop brain</button>
+</header>
+
+<main>
+  <!-- left column: videos -->
+  <aside>
+    <section>
+      <h2>Videos</h2>
+      <ul id="video-list"></ul>
+      <input type="file" id="file-input" accept=".mp4" hidden>
+      <button id="btn-add">＋ Add video (.mp4)</button>
+    </section>
+    <section>
+      <h2>Outbox</h2>
+      <ul id="outbox-list"></ul>
+    </section>
+    <section>
+      <video id="player" controls width="100%"></video>
+      <p class="hint" id="now-playing">nothing playing</p>
+    </section>
+  </aside>
+
+  <!-- right column: chat + plan -->
+  <section class="right">
+    <div id="chat" aria-live="polite"></div>
+    <form id="chat-form">
+      <input id="chat-input" autocomplete="off"
+             placeholder="e.g. cut the silences, add a title 'Chapter 1' at the start">
+      <button type="submit">Send</button>
+    </form>
+
+    <div id="plan-box">
+      <h2>Plan <span id="plan-video"></span></h2>
+      <div id="timeline-wrap">
+        <div id="timeline"></div>
+      </div>
+      <div id="plan-legend">keep <i class="sw keep"></i> cut <i class="sw cut"></i>
+        <span id="plan-summary"></span></div>
+      <div id="plan-ops"></div>
+    </div>
+  </section>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>
