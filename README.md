@@ -253,20 +253,32 @@ The repo ships code only — no binaries, no weights. You need three things: FFm
 
 ### 11.2 Build the brain server (llama.cpp)
 
-Any recent llama.cpp works — the project talks to it over its OpenAI-compatible HTTP API, nothing fork-specific:
+Any recent llama.cpp works — the project talks to it over its OpenAI-compatible HTTP API, nothing fork-specific.
+
+**Run these from OUTSIDE the project directory** (e.g. in `~/`, or anywhere temporary — the llama.cpp source is throwaway, only the `llama-server` binary is kept):
 
 ```
+cd ~                              # or any temp dir — NOT inside FireReplayMotion
 git clone https://github.com/ggml-org/llama.cpp
 cd llama.cpp
 cmake -B build -DGGML_NATIVE=ON
 cmake --build build --config Release -j4
-mkdir -p tools/llama.cpp-master/build/bin
-cp build/bin/llama-server tools/llama.cpp-master/build/bin/
 ```
+
+Then copy the built binary INTO the project (replace `/path/to/FireReplayMotion` with where you cloned this repo):
+
+```
+mkdir -p /path/to/FireReplayMotion/tools/llama.cpp-master/build/bin
+cp build/bin/llama-server /path/to/FireReplayMotion/tools/llama.cpp-master/build/bin/
+```
+
+The project expects `llama-server` at exactly `tools/llama.cpp-master/build/bin/llama-server` relative to its own folder (`agent.py` resolves paths from its own location). You can delete the llama.cpp clone afterwards — only the binary is used.
 
 (On Intel iGPUs, Quick Sync only affects the *render* — FFmpeg, not llama.cpp. The brain runs on CPU.)
 
 ### 11.3 Download a model
+
+**From INSIDE the project directory** (the model must sit in `models/` relative to it):
 
 Any instruct GGUF works. The default is Spark-X2.5-4B (Q4_K_M, ~2.6 GB):
 
@@ -291,6 +303,8 @@ The brain is a config line, not an architecture. `agent.py` reads `EDITAI_MODEL`
 Rules of thumb: instruct-tuned, tool-calling-capable (function calling), Q4_K_M quant is the sweet spot. Smaller than 3B tends to fail at multi-step tool chaining; 4B is the verified floor on CPU.
 
 ### 11.5 First run
+
+**From INSIDE the project directory** (all commands — the pipeline reads `inbox/`, `plans/`, `outbox/` relative to the current directory):
 
 ```
 python3 smoke_test.py    # pipeline self-check (no brain needed)
