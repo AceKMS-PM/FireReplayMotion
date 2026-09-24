@@ -197,7 +197,14 @@ outbox/ — a CLI render shows up in the UI's outbox after a refresh), never
 the chat transcript. Unifying sessions is a Phase 3 candidate.
 
 **The tools** (the LLM's vocabulary — all deterministic Python underneath):
-`list_videos` `select_video` `read_transcript` `find_silences` `measure` `add_text` `add_zoom` `adjust_polish` `add_fade` `add_loudnorm` `remove_ops` `show_plan` `render`
+`list_videos` `select_video` `read_transcript` `find_silences` `apply_cuts` `remove_cuts` `cut_range` `measure` `add_text` `add_zoom` `adjust_polish` `add_fade` `add_loudnorm` `remove_ops` `show_plan` `render`
+
+**NOTHING IS AUTOMATIC — senses propose, you dispose.** `find_silences` and
+`measure` only ever *suggest* (stored as a proposal, applied to nothing).
+Silences, black screens, or unusual passages may be the video's intended
+aesthetics — only explicit human confirmation (`apply_cuts` after approval,
+or a direct request via `cut_range`) enters the plan. `plan.py` applies
+exactly `job["cuts"]` and nothing else.
 
 **Safety architecture:** the model only fills JSON schemas; the validator rejects unknown ops, out-of-range timestamps, malformed rects. `render` requires `user_confirmed=true`, and the system prompt forbids calling it without explicit user consent — chat IS the review gate.
 
@@ -231,7 +238,9 @@ change — it is the "did I break anything?" oracle.
 ## 9. Philosophy
 
 - **Add features until impossible.** Every new editing capability = one new tool + one new line type in the edit list. The architecture does not change.
-- **Trust is earned per decision type.** Deterministic edits (silence cuts) can be auto-approved; judgment calls keep the review gate.
+- **Trust is earned per decision type.** *And the author's line in the sand:
+  NOTHING is automatic — senses propose, the human disposes, even for
+  deterministic edits.* The review gate is never skipped.
 - **The heavy lifting is already solved.** The 8 GB limit shaped a sequential, text-driven design — which turns out to be exactly what makes a small local LLM viable as the agent's brain.
 
 ## 10. Honest limits

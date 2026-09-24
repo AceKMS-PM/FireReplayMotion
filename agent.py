@@ -39,12 +39,31 @@ the result in one or two sentences.
 6. Do NOT select a video on greetings or vague messages. Only call \
 select_video when the user names a video or clearly wants to edit one. \
 If several videos exist and it is ambiguous, ask which one.
+7. A plan described only in words is NOT a plan. Every cut/op MUST exist as a \
+tool call (apply_cuts, cut_range, add_text, ...). Never compute timestamps \
+yourself — pass the user's numbers to the tool and report the tool's own \
+result. After any plan change, call show_plan so the user sees the true state.
+8. NOTHING IS AUTOMATIC. find_silences and measure only PROPOSE. Silences, \
+black screens, or unusual passages may be the video's intended aesthetics — \
+only the user decides. Never apply a proposal until the user confirms. To \
+apply a confirmed silence proposal, call apply_cuts with exactly the \
+cut_points list the proposal returned. A manual request ("cut the last 6 \
+seconds") enters the plan via cut_range — still call show_plan before render.
 
 ## Tool guidance
 - list_videos / select_video: pick the session video first.
 - read_transcript: see what is said and when (sentence-level).
-- find_silences(min_gap): deterministic cut plan from transcript gaps.
-- measure: silences (audio), scene changes, brightness — objective senses.
+- find_silences(min_gap): PROPOSES silence cuts. Returns cut_points — \
+nothing is applied. Show the user, ask, and only apply via apply_cuts after \
+explicit confirmation.
+- apply_cuts(cuts): confirm a cut list (usually the approved proposal) — \
+this REPLACES the current confirmed cuts.
+- remove_cuts: clear all confirmed cuts.
+- cut_range(start,end): user-requested cut, enters confirmed cuts immediately \
+("cut the last 6 seconds" -> pass the user's numbers, e.g. for a 24s video \
+cut_range(18,24) — verify the duration from select_video, never mental math).
+- measure: silences (audio), scene changes, brightness — objective senses, \
+proposals only.
 - add_text(start,end,text,position,size), add_zoom(start,end,rect[fractions]),
   adjust_polish(saturation,brightness,contrast,start,end),
   add_fade(start,end,dur), add_loudnorm(): accumulate ops.
@@ -76,6 +95,8 @@ def tool_select_video(name, state):
         return {"error": f"no video named {name} in inbox/"}
     state["video"] = name
     state["ops"] = []
+    state["cuts"] = []          # only EXPLICIT, user-confirmed cuts
+    state["proposal"] = None    # last find_silences proposal (never applied)
     state["min_gap"] = 2.0
     dur = _ffprobe_duration(src)
     return {"selected": name, "duration_s": dur,
@@ -99,6 +120,7 @@ def tool_read_transcript(state):
 
 
 def tool_find_silences(min_gap, state):
+    """PROPOSES silence cuts. NEVER applies anything — the user decides."""
     err = _require_video(state)
     if err:
         return err
@@ -118,9 +140,44 @@ def tool_find_silences(min_gap, state):
     if dur - prev > min_gap:
         gaps.append([round(prev, 2), round(dur, 2)])
     state["min_gap"] = min_gap
+    state["proposal"] = gaps          # stored for apply_cuts, NOT applied
     removed = sum(e - s for s, e in gaps)
     return {"cut_points": gaps, "seconds_removed": round(removed, 1),
-            "note": "these cuts apply on render; times are original-timeline"}
+            "note": "PROPOSAL ONLY — nothing is applied. To apply these "
+                    "after the user confirms, call apply_cuts with exactly "
+                    "this cut_points list."}
+
+
+def tool_apply_cuts(cuts, state):
+    """Explicitly confirm a cut list (usually the proposal the user approved).
+    Replaces the current confirmed cuts."""
+    err = _require_video(state)
+    if err:
+        return err
+    dur = _ffprobe_duration(ROOT / "inbox" / f"{state['video']}.mp4")
+    cleaned = []
+    for c in cuts:
+        if not (isinstance(c, list) and len(c) == 2
+                and isinstance(c[0], (int, float))
+                and isinstance(c[1], (int, float))
+                and 0 <= c[0] < c[1] <= dur):
+            return {"error": f"invalid cut {c} — need [start, end] with "
+                            f"0 <= start < end <= {dur}"}
+        cleaned.append([round(c[0], 2), round(c[1], 2)])
+    state["cuts"] = cleaned
+    removed = sum(e - s for s, e in cleaned)
+    return {"applied_cuts": cleaned, "seconds_removed": round(removed, 1),
+            "note": "confirmed — render will apply exactly these cuts. "
+                    "Call show_plan to see the result."}
+
+
+def tool_remove_cuts(state):
+    err = _require_video(state)
+    if err:
+        return err
+    n = len(state.get("cuts", []))
+    state["cuts"] = []
+    return {"cleared": n, "cuts": []}
 
 
 def tool_measure(state):
@@ -181,6 +238,22 @@ def _validate_op(op, state):
     return None
 
 
+def tool_cut_range(start, end, state=None):
+    """Remove an arbitrary time range. This IS a user request, so it enters
+    the confirmed cuts immediately (still gated at render by show_plan)."""
+    err = _require_video(state)
+    if err:
+        return err
+    dur = _ffprobe_duration(ROOT / "inbox" / f"{state['video']}.mp4")
+    if not (isinstance(start, (int, float)) and isinstance(end, (int, float))
+            and 0 <= start < end <= dur):
+        return {"error": f"need 0 <= start < end <= {dur}"}
+    state.setdefault("cuts", []).append([round(start, 2), round(end, 2)])
+    return {"cut_added": [round(start, 2), round(end, 2)],
+            "confirmed_cuts": state["cuts"],
+            "note": "confirmed — call show_plan to see resulting segments"}
+
+
 def tool_add_text(start, end, text, position="top", size=60, state=None):
     op = {"op": "text", "start": start, "end": end, "text": text,
           "position": position, "size": int(size)}
@@ -229,15 +302,39 @@ def tool_add_loudnorm(state=None):
 def tool_remove_ops(state):
     n = len(state["ops"])
     state["ops"] = []
-    return {"cleared": n, "ops_count": 0}
+    return {"cleared": f"{n} ops", "ops_count": 0}
 
 
 def tool_show_plan(state):
     err = _require_video(state)
     if err:
         return err
-    return {"video": state["video"], "min_gap": state.get("min_gap", 2.0),
-            "ops": state["ops"],
+    # only EXPLICIT, user-confirmed cuts shape the result — nothing automatic.
+    name = state["video"]
+    dur = _ffprobe_duration(ROOT / "inbox" / f"{name}.mp4")
+    raw = sorted(state.get("cuts", []))
+    cuts, cursor, segments = [], 0.0, []
+    for s, e in raw:
+        if s < cursor:
+            e = max(cursor, e)   # overlap: absorb
+            s = cursor
+        if e - s > 0.01:
+            cuts.append([round(s, 2), round(e, 2)])
+            cursor = e
+        else:
+            cursor = max(cursor, e)
+    c = 0.0
+    for s, e in cuts:
+        if s - c > 0.01:
+            segments.append([round(c, 2), round(s, 2)])
+        c = max(c, e)
+    if dur - c > 0.01:
+        segments.append([round(c, 2), round(dur, 2)])
+    kept = sum(e - s for s, e in segments)
+    return {"video": name, "min_gap": state.get("min_gap", 2.0),
+            "confirmed_cuts": state.get("cuts", []),
+            "proposal": state.get("proposal", None),
+            "segments": segments, "result_duration": round(kept, 1),
             "next_step": "tell the user this plan; render only if they confirm"}
 
 
@@ -248,7 +345,7 @@ def tool_render(user_confirmed, state):
     if not user_confirmed:
         return {"error": "user did not confirm — ask them first"}
     job = {"video": state["video"], "min_gap": state.get("min_gap", 2.0),
-           "ops": state["ops"]}
+           "ops": state["ops"], "cuts": state.get("cuts", [])}
     (ROOT / "inbox" / "job.json").write_text(json.dumps(job, indent=2))
     before = {p.resolve() for p in (ROOT / "outbox").glob("*.mp4")}
     log = []
@@ -298,6 +395,20 @@ TOOLS = [
     _schema("measure",
             "Measure the video: silences (audio), scene changes, brightness.",
             {}, []),
+    _schema("cut_range",
+            "Remove an arbitrary time range [start,end] (user-requested cut, "
+            "enters confirmed cuts immediately).",
+            {"start": {"type": "number"}, "end": {"type": "number"}},
+            ["start", "end"]),
+    _schema("apply_cuts",
+            "CONFIRM a cut list — use the exact cut_points a proposal "
+            "(find_silences) returned, AFTER the user approves. Replaces "
+            "current confirmed cuts.",
+            {"cuts": {"type": "array",
+                      "items": {"type": "array",
+                                "items": {"type": "number"}}}},
+            ["cuts"]),
+    _schema("remove_cuts", "Clear all confirmed cuts.", {}, []),
     _schema("add_text", "Add a text overlay op.",
             {"start": {"type": "number"}, "end": {"type": "number"},
              "text": {"type": "string"},
@@ -336,6 +447,10 @@ def _register():
     TOOL_FNS["read_transcript"] = lambda a, s: tool_read_transcript(s)
     TOOL_FNS["find_silences"] = lambda a, s: tool_find_silences(a["min_gap"], s)
     TOOL_FNS["measure"] = lambda a, s: tool_measure(state=s)
+    TOOL_FNS["cut_range"] = lambda a, s: tool_cut_range(
+        a["start"], a["end"], state=s)
+    TOOL_FNS["apply_cuts"] = lambda a, s: tool_apply_cuts(a["cuts"], s)
+    TOOL_FNS["remove_cuts"] = lambda a, s: tool_remove_cuts(s)
     TOOL_FNS["add_text"] = lambda a, s: tool_add_text(
         a["start"], a["end"], a["text"], a.get("position", "top"),
         a.get("size", 60), state=s)

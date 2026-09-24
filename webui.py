@@ -65,6 +65,7 @@ def snapshot():
         "transcripts": sorted(x.name for x in (ROOT / "inbox").glob("*.transcript.json")),
         "selected": name,
         "ops": state.get("ops", []),
+        "cuts": state.get("cuts", []),
         "min_gap": state.get("min_gap", 2.0),
         "plan": plan,
         "brain_on": agent.server_up(),
@@ -218,7 +219,13 @@ class Handler(BaseHTTPRequestHandler):
             if not safe.lower().endswith(".mp4") or not data:
                 self.send_json({"error": "please upload a .mp4 file"}, 400)
                 return
-            (ROOT / "inbox" / safe).write_bytes(data)
+            target = ROOT / "inbox" / safe
+            if target.exists():
+                self.send_json({"error": f"{safe} already exists in inbox — "
+                                         "rename the file first (no silent "
+                                         "overwrites)"}, 400)
+                return
+            target.write_bytes(data)
             print(f"[webui] added video: {safe} ({len(data) / 1e6:.1f} MB)")
             self.send_json({"added": safe, "state": snapshot()})
 

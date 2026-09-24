@@ -73,12 +73,49 @@ def t_validator():
 def t_silence_math():
     import agent
     agent._register()
-    state = {"video": "test_clip", "ops": [], "min_gap": 2.0}
+    state = {"video": "test_clip", "ops": [], "cuts": [], "proposal": None,
+             "min_gap": 2.0}
     r = agent.tool_find_silences(2.0, state)
     expect(r["cut_points"] == [[6.0, 9.0], [13.0, 16.0], [20.0, 23.0]],
            f"unexpected cuts: {r['cut_points']}")
     expect(r["seconds_removed"] == 9.0, f"removed={r['seconds_removed']}")
-    return "cuts = 3 planted silences, 9.0s"
+    expect(state["cuts"] == [],
+           "find_silences applied cuts without user consent")
+    return "proposal = 3 silences (9.0s), confirmed cuts untouched"
+
+
+def t_apply_flow():
+    import agent
+    agent._register()
+    state = {"video": "test_clip", "ops": [], "cuts": [], "proposal": None,
+             "min_gap": 2.0}
+    p = agent.tool_find_silences(2.0, state)["cut_points"]
+    agent.tool_apply_cuts(p, state)
+    plan = agent.tool_show_plan(state)
+    expect(plan["result_duration"] == 15.0,
+           f"after apply: {plan['result_duration']} != 15.0")
+    agent.tool_remove_cuts(state)
+    expect(agent.tool_show_plan(state)["result_duration"] == 24.0,
+           "remove_cuts did not restore full video")
+    return "propose → confirm → 15.0s → remove_cuts → 24.0s"
+
+
+def t_cut_range():
+    import agent
+    agent._register()
+    state = {"video": "test_clip", "ops": [], "cuts": [], "proposal": None,
+             "min_gap": 2.0}
+    r = agent.tool_cut_range(18.0, 24.0, state)   # "cut the last 6 seconds"
+    expect(r.get("cut_added") == [18.0, 24.0], f"cut_range wrong: {r}")
+    bad = agent.tool_cut_range(30.0, 40.0, state)  # beyond duration
+    expect("error" in bad, "cut_range accepted out-of-range cut")
+    plan = agent.tool_show_plan(state)
+    expect(plan["result_duration"] == 18.0,
+           f"cut last 6s alone must be 18.0s (no auto silences), got "
+           f"{plan['result_duration']}")
+    expect(plan["segments"][-1][1] == 18.0,
+           f"video must end at 18.0s, got {plan['segments']}")
+    return "cut last 6s alone -> 18.0s (nothing automatic)"
 
 
 def t_measure():
@@ -94,6 +131,24 @@ def t_measure():
     return "audio sense agrees with transcript (±0.2s)"
 
 
+def t_cut_range():
+    import agent
+    agent._register()
+    state = {"video": "test_clip", "ops": [], "cuts": [], "proposal": None,
+             "min_gap": 2.0}
+    r = agent.tool_cut_range(18.0, 24.0, state)   # "cut the last 6 seconds"
+    expect(r.get("cut_added") == [18.0, 24.0], f"cut_range wrong: {r}")
+    bad = agent.tool_cut_range(30.0, 40.0, state)  # beyond duration
+    expect("error" in bad, "cut_range accepted out-of-range cut")
+    plan = agent.tool_show_plan(state)
+    expect(plan["result_duration"] == 18.0,
+           f"cut last 6s alone must be 18.0s (no auto silences), got "
+           f"{plan['result_duration']}")
+    expect(plan["segments"][-1][1] == 18.0,
+           f"video must end at 18.0s, got {plan['segments']}")
+    return "cut last 6s alone -> 18.0s (nothing automatic)"
+
+
 def t_plan_and_render():
     job_path = ROOT / "inbox" / "job.json"
     original_job = job_path.read_bytes() if job_path.exists() else None
@@ -105,7 +160,9 @@ def t_plan_and_render():
     if had_output:
         shutil.move(str(expected_out), backup)   # protect the user's render
     try:
-        job = {"video": "test_clip", "min_gap": 2.0, "ops": [
+        job = {"video": "test_clip", "min_gap": 2.0,
+               "cuts": [[6.0, 9.0], [13.0, 16.0], [21.0, 24.0]],  # explicit
+               "ops": [
             {"op": "fade", "start": 0, "end": 3, "dur": 1.0},
             {"op": "loudnorm"}]}
         job_path.write_text(json.dumps(job, indent=2))
@@ -113,9 +170,11 @@ def t_plan_and_render():
                            capture_output=True, text=True)
         expect(r.returncode == 0, f"plan.py failed: {r.stderr[-200:]}")
         plan = json.loads(plan_path.read_text())
-        expect(plan["segments"] == [[0.0, 6.0], [9.0, 13.0], [16.0, 20.0],
-                                    [23.0, 24.0]],
+        # explicit cuts: [6,9],[13,16],[21,24] -> segments [0,6],[9,13],[16,21]
+        expect(plan["segments"] == [[0.0, 6.0], [9.0, 13.0], [16.0, 21.0]],
                f"segments wrong: {plan['segments']}")
+        expect(abs(plan["result_duration"] - 15.0) < 0.01,
+               f"result {plan['result_duration']} != 15.0")
         expect(plan["ops"] == job["ops"], "ops lost between job and plan")
         plan["approved"] = True
         plan_path.write_text(json.dumps(plan, indent=2))
@@ -128,7 +187,7 @@ def t_plan_and_render():
                             str(expected_out)], capture_output=True, text=True)
         dur = float(p.stdout.strip())
         expect(abs(dur - 15.0) < 0.5, f"duration {dur:.1f}s != ~15.0s")
-        return f"render OK: {expected_out.name} ({dur:.1f}s)"
+        return f"render OK: {expected_out.name} ({dur:.1f}s, explicit cuts)"
     finally:
         # restore the exact pre-test world
         expected_out.unlink(missing_ok=True)
@@ -157,9 +216,11 @@ def main():
     check("compile", t_compile)
     check("tool registry", t_registry)
     check("validator", t_validator)
-    check("silence math", t_silence_math)
+    check("silence math (proposal)", t_silence_math)
+    check("propose → confirm → remove", t_apply_flow)
+    check("cut_range (explicit only)", t_cut_range)
     check("senses (measure)", t_measure)
-    check("plan → render (fade + loudnorm)", t_plan_and_render)
+    check("plan → render (explicit cuts + ops)", t_plan_and_render)
     check("webui import", t_webui_import)
     print("=" * 60)
     fails = [r for r in RESULTS if not r[1]]
