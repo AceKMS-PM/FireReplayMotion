@@ -1,1 +1,28 @@
-{"video": "test_clip", "min_gap": 2.0, "cuts": [], "ops": []}
+{
+  "video": "test_clip",
+  "min_gap": 2.0,
+  "ops": [
+    {
+      "op": "text",
+      "start": 0.0,
+      "end": 3.0,
+      "text": "Chapter 1",
+      "position": "top",
+      "size": 24
+    }
+  ],
+  "cuts": [
+    [
+      6.0,
+      9.0
+    ],
+    [
+      13.0,
+      16.0
+    ],
+    [
+      20.0,
+      23.0
+    ]
+  ]
+}

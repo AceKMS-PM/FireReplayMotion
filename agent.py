@@ -347,7 +347,8 @@ def tool_render(user_confirmed, state):
     job = {"video": state["video"], "min_gap": state.get("min_gap", 2.0),
            "ops": state["ops"], "cuts": state.get("cuts", [])}
     (ROOT / "inbox" / "job.json").write_text(json.dumps(job, indent=2))
-    before = {p.resolve() for p in (ROOT / "outbox").glob("*.mp4")}
+    before = {p.resolve(): p.stat().st_mtime
+              for p in (ROOT / "outbox").glob("*.mp4")}
     log = []
 
     r = subprocess.run([sys.executable, str(ROOT / "plan.py")], cwd=ROOT,
@@ -367,7 +368,9 @@ def tool_render(user_confirmed, state):
     if r.returncode != 0:
         return {"error": "render.py failed", "log": log}
 
-    fresh = {p.resolve() for p in (ROOT / "outbox").glob("*.mp4")} - before
+    after = {p.resolve(): p.stat().st_mtime
+             for p in (ROOT / "outbox").glob("*.mp4")}
+    fresh = sorted(p for p, m in after.items() if before.get(p) != m)
     if not fresh:
         return {"error": "render produced no new file — check log", "log": log}
     return {"done": True, "output": str(sorted(fresh)[-1]), "log": log}

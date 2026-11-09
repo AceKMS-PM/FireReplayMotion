@@ -167,8 +167,29 @@ Rule of thumb: editing again soon → `quit` / just close the page. Done for the
 | Senses | `measure.py` — silencedetect + scene changes + brightness (levels 2–3) | ✅ verified: audio sense agrees with transcript |
 | Hands v2 | `render.py` — text/zoom/polish ops, zoom splits segments, op validation | ✅ verified end-to-end |
 | Brain | llama.cpp (Spark fork, built from source: `tools/llama.cpp-master/`) + **Spark-X2.5-4B Q4_K_M** (default) | ✅ A/B-tested: more agentic than Qwen3-4B — proactive tool chaining, cross-validated senses vs transcript |
-| Alt brains | `Qwen3-4B` (faster, lazier), `granite-4.0-micro` (fallback) | downloaded; swap: `EDITAI_MODEL=models/Qwen3-4B-Q4_K_M.gguf EDITAI_PORT=8322 python3 agent.py` |
-| Loop | `agent.py` — 13 tools, JSON-schema registry, validator (LLM never touches FFmpeg), session state | ✅ full chat session verified on both brains |
+| Alt brains | `Spark-X2.6-4B` ❌ (failed A/B), `Sharp-Spark X2.5 XL` ✅ (validated), `MiniCPM5-2B Q8` ⚠️ (over-cautious), `Qwen3-4B` (faster, lazier), `granite-4.0-micro` (fallback) | downloaded; swap: `EDITAI_MODEL=models/Sharp-Spark-X2.5-4B-Q4_K_XL.gguf EDITAI_PORT=8322 python3 agent.py` |
+| Loop | `agent.py` — 16 tools, JSON-schema registry, validator (LLM never touches FFmpeg), session state | ✅ full chat session verified on both brains |
+
+#### A/B session — 2026-11-01 (same demo, same load conditions)
+
+| Brain | "cut the silences" → all 3 cuts | proposals ≠ confirmed | inference total (6-turn demo) |
+|---|---|---|---|
+| **Spark-X2.5-4B** (default) | ✅ all 3 | ✅ | 799 s |
+| Spark-X2.6-4B | ❌ only 1 of 3 — fastest but broke the instruction | ✅ | (log lost; ≈600 s w/ less work) |
+| Sharp-Spark X2.5 Q4_K_XL | ✅ all 3 | ✅ | 759 s (17 round-trips, faster t/s) |
+| MiniCPM5-2B Q8_0 | ⚠️→✅ | held cuts as proposals, demanded an extra "yes" (extra-strict render gate) | 522 s (demo ended at render gate) |
+
+Winner so far: current default keeps the seat. Spark-X2.6 disqualified
+(instruction-following); Sharp-Spark XL validated as an equal alternative;
+**MiniCPM5-2B Q8 validated in a real interactive session**: applied all 3
+silences on direct order, correct math (15.0s), truthful render report —
+same RAM footprint as the default (~2.5 GB), fastest turns of the field.
+
+Consistency probe (3 clean runs, same instruction, ground truth read from
+`state["cuts"]`): **3/3 applied all three cuts + correct title**. The earlier
+"proposal-only" behavior in the scripted demo was a one-off on long context —
+and when tools were broken it honestly reported "unable to access tools"
+instead of hallucinating success (the 4B models claimed success over errors).
 | Hands v2.1 | `render.py` — text/zoom/polish/fade ops + `afade` audio sync + `loudnorm` second pass | ✅ fade + loudnorm added by the author, verified end-to-end (fade-in frame ≈ black, output 15.0s) |
 | Web UI | `webui.py` (stdlib server, 27 MB RAM) + `web/static/` (html/css/js, no framework) | ✅ chat + timeline + video preview + Stop button verified |
 
